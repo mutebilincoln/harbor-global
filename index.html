@@ -1,4 +1,3 @@
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -91,15 +90,11 @@
                 </button>
             </nav>
 
-            <!-- User Badge / Quick Controls -->
-            <div class="flex items-center space-x-3">
-                <div class="hidden sm:flex items-center space-x-2 text-xs bg-harbor-dark px-3 py-1.5 rounded-full border border-slate-700/60">
-                    <span class="w-2 h-2 rounded-full bg-harbor-teal animate-pulse"></span>
-                    <span class="text-slate-300 font-medium">Turnstile Active</span>
-                </div>
-                <div class="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center font-bold text-xs text-white border border-slate-600">
-                    HB
-                </div>
+            <!-- Account controls -->
+            <div class="flex items-center gap-2">
+                <span id="account-status" class="hidden sm:inline text-xs text-slate-300">Not signed in</span>
+                <button id="account-open-btn" type="button" onclick="openAuthModal('login')" class="px-3 py-2 rounded-lg text-xs sm:text-sm font-bold bg-harbor-teal text-harbor-navy hover:bg-harbor-tealHover">Log in / Sign up</button>
+                <button id="account-logout-btn" type="button" onclick="harborSignOut()" class="hidden px-3 py-2 rounded-lg text-xs sm:text-sm font-bold border border-slate-600 text-white hover:bg-harbor-dark">Log out</button>
             </div>
         </div>
 
@@ -112,6 +107,41 @@
             <button onclick="switchTab('developer')" class="px-3 py-1.5 rounded bg-slate-800 text-white whitespace-nowrap">API Guide</button>
         </div>
     </header>
+
+    <!-- HARBOR ACCOUNT MODAL: Supabase email/password authentication -->
+    <div id="auth-modal" class="hidden fixed inset-0 z-50 bg-slate-950/70 p-4 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+        <div class="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <div class="bg-harbor-navy text-white p-5 flex items-start justify-between">
+                <div>
+                    <div class="text-xs uppercase tracking-widest text-harbor-teal font-bold">Harbor account</div>
+                    <h2 id="auth-title" class="text-xl font-extrabold mt-1">Welcome back</h2>
+                    <p id="auth-subtitle" class="text-sm text-slate-300 mt-1">Log in to your Harbor account.</p>
+                </div>
+                <button type="button" onclick="closeAuthModal()" aria-label="Close" class="text-slate-300 hover:text-white text-2xl leading-none">&times;</button>
+            </div>
+            <form id="auth-form" class="p-5 space-y-4">
+                <div id="auth-name-wrap" class="hidden">
+                    <label for="auth-name" class="block text-sm font-semibold mb-1">Full name</label>
+                    <input id="auth-name" type="text" autocomplete="name" class="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:ring-2 focus:ring-emerald-300" placeholder="Your full name">
+                </div>
+                <div>
+                    <label for="auth-email" class="block text-sm font-semibold mb-1">Email address</label>
+                    <input id="auth-email" type="email" autocomplete="email" required class="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:ring-2 focus:ring-emerald-300" placeholder="you@example.com">
+                </div>
+                <div id="auth-password-wrap">
+                    <label for="auth-password" class="block text-sm font-semibold mb-1">Password</label>
+                    <input id="auth-password" type="password" autocomplete="current-password" minlength="6" required class="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:ring-2 focus:ring-emerald-300" placeholder="At least 6 characters">
+                </div>
+                <p id="auth-message" class="hidden text-sm rounded-lg p-3" role="status" aria-live="polite"></p>
+                <button id="auth-submit-btn" type="submit" class="w-full py-3 rounded-xl bg-harbor-navy text-harbor-teal font-extrabold hover:bg-harbor-dark">Log in</button>
+                <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
+                    <button id="auth-toggle-btn" type="button" onclick="toggleAuthMode()" class="font-bold text-blue-700">Create an account</button>
+                    <button id="auth-reset-btn" type="button" onclick="harborResetPassword()" class="text-slate-600 underline">Forgot password?</button>
+                </div>
+                <p class="text-xs leading-relaxed text-slate-500">Creating an account only enables sign-in. It does not activate real-money transfers or payment processing.</p>
+            </form>
+        </div>
+    </div>
 
     <!-- MAIN CONTAINER -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-grow">
@@ -778,6 +808,8 @@ function verifyHarborPayLink(amount, recipient, exp, signature) {
         </div>
     </footer>
 
+    <!-- Supabase browser client. Add your project's URL and publishable key in the config below. -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <!-- JAVASCRIPT LOGIC -->
     <script>
         // Exchange Rate Matrix
@@ -1138,7 +1170,175 @@ function verifyHarborPayLink(amount, recipient, exp, signature) {
                 }
             });
         }
+
+        // ==================== HARBOR AUTHENTICATION ====================
+        // Replace these two placeholders with the Supabase Project URL and publishable key.
+        // The publishable/anon key is intended for browser use; NEVER put a service_role key here.
+        const HARBOR_SUPABASE_URL = 'https://pnfzthlrxufnyfqkxadg.supabase.co';
+        const HARBOR_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_DVla8Ae4V8tql85Gr9wX3w_TbHNF6wf';
+        let harborSupabase = null;
+        let harborAuthMode = 'login';
+
+        function harborAuthConfigured() {
+            return HARBOR_SUPABASE_URL.startsWith('https://') &&
+                !HARBOR_SUPABASE_URL.includes('PASTE_YOUR') &&
+                HARBOR_SUPABASE_PUBLISHABLE_KEY.length > 20 &&
+                !HARBOR_SUPABASE_PUBLISHABLE_KEY.includes('PASTE_YOUR');
+        }
+
+        function openAuthModal(mode = 'login') {
+            setAuthMode(mode);
+            const modal = document.getElementById('auth-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            document.body.style.overflow = 'hidden';
+            setTimeout(() => document.getElementById('auth-email').focus(), 50);
+        }
+
+        function closeAuthModal() {
+            const modal = document.getElementById('auth-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            document.body.style.overflow = '';
+            clearAuthMessage();
+        }
+
+        function setAuthMode(mode) {
+            harborAuthMode = mode;
+            const isSignup = mode === 'signup';
+            const isReset = mode === 'reset';
+            document.getElementById('auth-title').textContent = isSignup ? 'Create your account' : isReset ? 'Reset password' : 'Welcome back';
+            document.getElementById('auth-subtitle').textContent = isSignup ? 'Create a Harbor account using your email.' : isReset ? 'We will email you a password-reset link.' : 'Log in to your Harbor account.';
+            document.getElementById('auth-name-wrap').classList.toggle('hidden', !isSignup);
+            document.getElementById('auth-password-wrap').classList.toggle('hidden', isReset);
+            document.getElementById('auth-password').required = !isReset;
+            document.getElementById('auth-password').autocomplete = isSignup ? 'new-password' : 'current-password';
+            document.getElementById('auth-submit-btn').textContent = isSignup ? 'Create account' : isReset ? 'Send reset link' : 'Log in';
+            document.getElementById('auth-toggle-btn').textContent = isSignup ? 'Already have an account? Log in' : 'Create an account';
+            document.getElementById('auth-toggle-btn').classList.toggle('hidden', isReset);
+            document.getElementById('auth-reset-btn').classList.toggle('hidden', isSignup || isReset);
+            clearAuthMessage();
+        }
+
+        function toggleAuthMode() {
+            setAuthMode(harborAuthMode === 'signup' ? 'login' : 'signup');
+        }
+
+        function showAuthMessage(message, kind = 'error') {
+            const el = document.getElementById('auth-message');
+            el.textContent = message;
+            el.className = 'text-sm rounded-lg p-3 ' + (kind === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200');
+        }
+
+        function clearAuthMessage() {
+            const el = document.getElementById('auth-message');
+            if (el) { el.textContent = ''; el.className = 'hidden text-sm rounded-lg p-3'; }
+        }
+
+        async function harborResetPassword() {
+            if (!harborSupabase) {
+                showAuthMessage('Setup needed: add your Supabase Project URL and publishable key in index.html first.');
+                return;
+            }
+            const email = document.getElementById('auth-email').value.trim();
+            if (!email) { showAuthMessage('Enter your email address first.'); return; }
+            const { error } = await harborSupabase.auth.resetPasswordForEmail(email, {
+                redirectTo: window.location.origin + window.location.pathname
+            });
+            if (error) showAuthMessage(error.message);
+            else showAuthMessage('If this email is registered, a password-reset link will be sent. Check your inbox.', 'success');
+        }
+
+        async function harborSignOut() {
+            if (!harborSupabase) return;
+            const { error } = await harborSupabase.auth.signOut();
+            if (error) alert('Could not log out: ' + error.message);
+        }
+
+        function updateHarborAccount(user) {
+            const status = document.getElementById('account-status');
+            const openBtn = document.getElementById('account-open-btn');
+            const logoutBtn = document.getElementById('account-logout-btn');
+            if (user) {
+                status.textContent = user.email || 'Signed in';
+                openBtn.textContent = 'My account';
+                openBtn.onclick = () => openAuthModal('login');
+                logoutBtn.classList.remove('hidden');
+                // Do not render user-provided metadata as HTML.
+            } else {
+                status.textContent = 'Not signed in';
+                openBtn.textContent = 'Log in / Sign up';
+                openBtn.onclick = () => openAuthModal('login');
+                logoutBtn.classList.add('hidden');
+            }
+        }
+
+        async function initializeHarborAuth() {
+            if (!harborAuthConfigured()) {
+                updateHarborAccount(null);
+                return;
+            }
+            if (!window.supabase || !window.supabase.createClient) {
+                console.error('Supabase browser library failed to load.');
+                return;
+            }
+            harborSupabase = window.supabase.createClient(HARBOR_SUPABASE_URL, HARBOR_SUPABASE_PUBLISHABLE_KEY);
+            const { data: { session } } = await harborSupabase.auth.getSession();
+            updateHarborAccount(session ? session.user : null);
+            harborSupabase.auth.onAuthStateChange((_event, sessionNow) => {
+                updateHarborAccount(sessionNow ? sessionNow.user : null);
+                if (sessionNow) {
+                    closeAuthModal();
+                }
+            });
+        }
+
+        document.getElementById('auth-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            clearAuthMessage();
+            if (!harborAuthConfigured() || !harborSupabase) {
+                showAuthMessage('Setup needed: open index.html and add your Supabase Project URL and publishable key in the two HARBOR_SUPABASE constants.');
+                return;
+            }
+            const email = document.getElementById('auth-email').value.trim();
+            const password = document.getElementById('auth-password').value;
+            const submit = document.getElementById('auth-submit-btn');
+            submit.disabled = true;
+            submit.classList.add('opacity-60');
+            try {
+                if (harborAuthMode === 'signup') {
+                    const fullName = document.getElementById('auth-name').value.trim();
+                    const { data, error } = await harborSupabase.auth.signUp({
+                        email, password, options: { data: { full_name: fullName } }
+                    });
+                    if (error) throw error;
+                    if (data.session) {
+                        showAuthMessage('Your account was created and you are signed in.', 'success');
+                    } else {
+                        showAuthMessage('Account request received. Check your email for a confirmation link, then log in.', 'success');
+                    }
+                } else if (harborAuthMode === 'reset') {
+                    await harborResetPassword();
+                } else {
+                    const { error } = await harborSupabase.auth.signInWithPassword({ email, password });
+                    if (error) throw error;
+                    showAuthMessage('You are signed in.', 'success');
+                }
+            } catch (error) {
+                showAuthMessage(error.message || 'Authentication failed. Please try again.');
+            } finally {
+                submit.disabled = false;
+                submit.classList.remove('opacity-60');
+            }
+        });
+
+        document.getElementById('auth-modal').addEventListener('click', (event) => {
+            if (event.target.id === 'auth-modal') closeAuthModal();
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') closeAuthModal();
+        });
+        initializeHarborAuth();
     </script>
 </body>
 </html>
-```
